@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Word Count Results</title>
+     <style>
+        body { font-family: sans-serif; padding: 20px; max-width: 700px; margin: auto; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background-color: #f2f2f2; }
+        a { display: inline-block; margin-top: 20px; }
+    </style>
+</head>
+<body>
+    <h1>Most Frequent Words Results</h1>
+    <p>Found the following frequent words in the file: <strong>{{ filename }}</strong></p>
+
+    {% if words %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Word</th>
+                    <th>Frequency</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for word, count in words %}
+                <tr>
+                    <td>{{ word }}</td>
+                    <td>{{ count }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <p>No significant words were found after processing.</p>
+    {% endif %}
+
+    <a href="{{ url_for('index') }}">Upload another file</a>
+</body>
+</html>
