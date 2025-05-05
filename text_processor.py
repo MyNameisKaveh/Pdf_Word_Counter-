@@ -2,47 +2,98 @@
 import collections
 import string
 import re
-# Import NLTK for lemmatization and tokenization
 import nltk
+import traceback # For detailed error logging
 
 # --- NLTK Setup within Pyodide Environment ---
-# This setup needs to be run *once* after NLTK is loaded in Pyodide.
-# We'll trigger this from JavaScript after loading NLTK package.
 def download_nltk_data():
-    """Downloads necessary NLTK data (corpora) if not already present."""
+    """
+    Attempts to download necessary NLTK data (corpora).
+    NLTK's download function should handle already existing data gracefully.
+    Uses raise_on_error=True for clearer feedback if download fails.
+    """
     required_corpora = ['wordnet', 'omw-1.4', 'punkt']
+    print("Attempting to ensure NLTK data is available...")
+    all_downloaded = True
     for corpus in required_corpora:
         try:
-            # Check if the corpus path exists
-            nltk.data.find(f'corpora/{corpus}' if corpus != 'punkt' else f'tokenizers/{corpus}')
-        except nltk.downloader.DownloadError:
-            print(f"Downloading NLTK data: {corpus}...")
-            # Download quietly to avoid excessive console output in browser
-            nltk.download(corpus, quiet=True)
-        except LookupError: # Handle cases where find might raise LookupError
-             print(f"NLTK data lookup error for: {corpus}. Attempting download...")
-             nltk.download(corpus, quiet=True)
-    print("NLTK data ready.")
+            print(f"Downloading/Verifying NLTK data: {corpus}...")
+            # Directly attempt download. raise_on_error=True will throw exception on failure.
+            # quiet=False helps see progress in browser console during development.
+            # Set quiet=True in production if downloads are reliable.
+            success = nltk.download(corpus, quiet=False, raise_on_error=True)
+            if success:
+                 print(f"NLTK data '{corpus}' is available.")
+            else:
+                 # This part might not be reached if raise_on_error=True works
+                 print(f"NLTK download command returned False for '{corpus}'. Verification needed.")
+                 all_downloaded = False # Mark as potentially failed
+
+        except Exception as e:
+            # Catch any exception during download (network, permissions, etc.)
+            print(f"ERROR downloading NLTK data '{corpus}': {e}")
+            traceback.print_exc() # Print full traceback for debugging in browser console
+            all_downloaded = False
+
+    if all_downloaded:
+        print("All required NLTK data download attempts initiated.")
+    else:
+        print("WARNING: One or more NLTK data packages failed to download/initiate.")
+
+    # --- Final Verification Step ---
+    # It's still good practice to verify if NLTK can now find the data
+    print("Verifying NLTK data presence via nltk.data.find...")
+    final_check_ok = True
+    for corpus in required_corpora:
+         try:
+             # Determine the correct subdirectory ('corpora' or 'tokenizers')
+             path_type = 'tokenizers' if corpus == 'punkt' else 'corpora'
+             nltk.data.find(f'{path_type}/{corpus}')
+             print(f"Verified: '{corpus}' found by NLTK.")
+         except LookupError:
+             # Use the correct exception here!
+             print(f"ERROR: Verification failed. NLTK data '{corpus}' still not found after download attempt.")
+             final_check_ok = False
+         except Exception as e_find:
+             # Catch any other unexpected error during find
+             print(f"ERROR during verification find for '{corpus}': {e_find}")
+             final_check_ok = False
+
+    if final_check_ok:
+         print("Final NLTK data verification successful.")
+         return True # Indicate success
+    else:
+         print("ERROR: Final NLTK data verification failed for one or more packages.")
+         return False # Indicate failure
 # --------------------------------------------
 
-# Initialize the lemmatizer (needs WordNet data)
-# We'll initialize it properly after ensuring data is downloaded.
+# Initialize the lemmatizer
 lemmatizer = None
 
 def initialize_lemmatizer():
-    """Initializes the WordNetLemmatizer if not already done."""
+    """Initializes the WordNetLemmatizer if not already done and data is present."""
     global lemmatizer
     if lemmatizer is None:
         try:
+            # Explicitly check if required data is findable before initializing
+            print("Checking for WordNet data before initializing lemmatizer...")
+            nltk.data.find('corpora/wordnet')
+            nltk.data.find('corpora/omw-1.4') # Often needed by WordNet
+            print("WordNet data found. Initializing lemmatizer...")
+            # Now import and initialize
             from nltk.stem import WordNetLemmatizer
             lemmatizer = WordNetLemmatizer()
-            print("Lemmatizer initialized.")
+            print("Lemmatizer initialized successfully.")
+        except LookupError:
+            # Catch the correct error if data is missing
+            print("ERROR: Cannot initialize lemmatizer because WordNet/OMW-1.4 data is missing or not found by NLTK.")
         except Exception as e:
+            # Catch other potential errors during import or initialization
             print(f"Error initializing lemmatizer: {e}")
+            traceback.print_exc()
 
-# --- Updated STOP_WORDS List ---
-# Common/Generic words related to research structure/process are NOT included here
-# to allow them to appear in the results if frequent.
+
+# --- STOP_WORDS List (Unchanged from previous version) ---
 STOP_WORDS = set([
     # Standard English stop words
     "a", "an", "the", "in", "on", "at", "to", "for", "of", "with", "by", "as",
@@ -57,115 +108,80 @@ STOP_WORDS = set([
     "here", "there", "when", "where", "why", "how", "all", "any", "both", "each",
     "few", "more", "most", "other", "some", "such", "than", "too",
 
-    # Words still considered non-content or noise (KEEP removing these)
-    "et", "al",             # Citation markers
-    "fig", "figure", "table", "page", "vol", "no", # Document structure/references
-    "journal", "university", "pubmed", "doi", "org", "http", "https", "www", # Publication/Web related
-    "author", "authors", "article", "abstract", "introduction", # Section titles (often frequent noise)
-    "discussion", "conclusion", "conclusions", "reference", "references", # Section titles
-    "acknowledgement", "acknowledgements", "supplementary", # Section titles
-    "however", "therefore", "thus", "hence", "although", "though", # Discourse markers
-    "within", "without", "among", "between", # Common prepositions/adverbs
+    # Words still considered non-content or noise
+    "et", "al", "fig", "figure", "table", "page", "vol", "no", "journal", "university",
+    "pubmed", "doi", "org", "http", "https", "www", "author", "authors", "article",
+    "abstract", "introduction", "discussion", "conclusion", "conclusions",
+    "reference", "references", "acknowledgement", "acknowledgements", "supplementary",
+    "however", "therefore", "thus", "hence", "although", "though",
+    "within", "without", "among", "between",
 
-    # Single letters (often noise after cleaning)
+    # Single letters
     "b", "c", "d", "e", "f", "g", "h", "j", "k", "l", "m", "n",
     "o", "p", "q", "r", "s", "t", "u", "v", "w", "x", "y", "z"
 ])
+
 
 def process_text(raw_text: str, n_words: int = 100) -> list:
     """
     Processes the raw text: cleans, tokenizes, lemmatizes, removes stop words,
     and counts the frequency of the remaining words.
-
-    Args:
-        raw_text: The entire text content as a single string.
-        n_words: The number of most frequent words to return.
-
-    Returns:
-        A list of tuples (word, frequency), sorted by frequency.
-        Returns an error message list if processing fails.
     """
     global lemmatizer
     if not raw_text:
         return []
 
-    # Ensure lemmatizer is initialized (it should be after NLTK setup)
+    # Ensure lemmatizer is initialized - crucial check!
     if lemmatizer is None:
+        print("Lemmatizer is not initialized. Attempting to initialize now...")
         initialize_lemmatizer()
-        # If still None after trying to initialize, return error
+        # If still None after trying again, we cannot proceed.
         if lemmatizer is None:
-             return [("Error", "Lemmatizer could not be initialized. NLTK data might be missing.")]
+             print("ERROR: Lemmatizer failed to initialize. Cannot process text.")
+             return [("Error", "Lemmatizer initialization failed. Check NLTK data download status in console.")]
 
     try:
-        # 1. Basic Cleaning (Lowercasing, remove URLs/DOIs like patterns first)
+        # --- Text Cleaning (mostly unchanged) ---
         text_lower = raw_text.lower()
-        # Regex to remove URLs/DOIs and paths (adjust if too aggressive)
-        # Matches http/https/www, doi patterns, and simple word/word paths
         text_no_urls = re.sub(r'https?://\S+|www\.\S+|doi[:/]\S+|\b\w+/\w+\b', '', text_lower)
-
-        # Remove numbers - Decide whether to remove all digits or just standalone numbers
-        # text_no_digits = re.sub(r'\b\d+\b', '', text_no_urls) # Removes only standalone numbers
-        text_no_digits = re.sub(r'\d+', '', text_no_urls) # Removes digits potentially attached to words too
-
-        # 2. Remove punctuation (more carefully)
-        # Keep internal apostrophes for now, remove other punctuation
-        # Allows letters (a-z) and apostrophes within words, removes others except space
+        text_no_digits = re.sub(r'\d+', '', text_no_urls)
         text_almost_clean = re.sub(r"[^a-z\s']", '', text_no_digits)
-        # Replace multiple spaces with single space and trim ends
         text_clean = re.sub(r'\s+', ' ', text_almost_clean).strip()
 
-        # 3. Tokenize using NLTK (handles contractions better than split)
+        # --- Tokenization ---
         try:
             tokens = nltk.word_tokenize(text_clean)
         except Exception as tokenize_error:
-             # If tokenization fails (e.g., resource not found), fallback or raise
              print(f"NLTK tokenization failed: {tokenize_error}. Falling back to simple split.")
-             # Fallback to simple split - might be less accurate
-             tokens = text_clean.split()
+             tokens = text_clean.split() # Fallback
 
-
-        # 4. Lemmatize and Filter
+        # --- Lemmatization and Filtering ---
         lemmatized_words = []
         for word in tokens:
-            # Handle potential apostrophes (e.g., from 's) before lemmatizing
-            # Simple approach: remove trailing 's if it exists
             cleaned_word = word.rstrip("'s") if word.endswith("'s") else word
-            # Remove any remaining leading/trailing apostrophes if any slipped through
             cleaned_word = cleaned_word.strip("'")
+            if not cleaned_word: continue
 
-            # Skip if the word is now empty after cleaning
-            if not cleaned_word:
-                continue
-
-            # Lemmatize (get the base form of the word)
-            # Try noun form first, then verb form if no change
+            # Lemmatize
             lemma = lemmatizer.lemmatize(cleaned_word, pos='n')
-            if lemma == cleaned_word: # If no change as noun, try as verb
+            if lemma == cleaned_word:
                  lemma = lemmatizer.lemmatize(cleaned_word, pos='v')
 
-            # Filter stop words and short words AFTER lemmatization
-            # Only keep words longer than 2 characters that are not stop words
-            if lemma not in STOP_WORDS and len(lemma) > 2:
-                # Optional: Filter excessively long words (potential errors from bad PDF extraction)
-                if len(lemma) < 25: # Arbitrary limit, adjust if needed
-                    lemmatized_words.append(lemma)
+            # Filter stop words and short/long words
+            if lemma not in STOP_WORDS and 2 < len(lemma) < 25:
+                lemmatized_words.append(lemma)
 
         if not lemmatized_words:
             print("No significant words found after filtering.")
             return []
 
-        # 5. Count word frequencies
+        # --- Counting ---
         word_counts = collections.Counter(lemmatized_words)
-
-        # 6. Get the N most common words
         most_common = word_counts.most_common(n_words)
 
         return most_common
 
     except Exception as e:
-        # Catch any unexpected error during processing
-        import traceback
         print(f"Error during Python text processing: {e}")
-        print(traceback.format_exc()) # Print stack trace for debugging
-        # Return error info formatted as a list of tuples for consistency
+        traceback.print_exc()
         return [("Error processing text", str(e))]
