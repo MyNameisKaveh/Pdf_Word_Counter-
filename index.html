@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF Word Counter</title>
+    <style>
+        body { font-family: sans-serif; padding: 20px; line-height: 1.6; }
+        #status { margin-top: 15px; font-style: italic; color: #555; }
+        #results { margin-top: 15px; border: 1px solid #ccc; padding: 10px; max-height: 400px; overflow-y: auto; }
+        button { padding: 10px 15px; font-size: 1em; cursor: pointer; }
+        input[type="file"], input[type="number"] { padding: 8px; margin-right: 10px; }
+        ol { padding-left: 20px; }
+        li { margin-bottom: 5px; }
+        .error { color: red; font-weight: bold; }
+    </style>
+    <!-- Load Pyodide -->
+    <script src="https://cdn.jsdelivr.net/pyodide/v0.25.1/full/pyodide.js"></script>
+    <!-- Load pdf.js (needed for PDF text extraction in the browser) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.11.338/pdf.min.js"></script>
+    <!-- Set workerSrc for pdf.js -->
+    <script>
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.11.338/pdf.worker.min.js';
+    </script>
+</head>
+<body>
+
+    <h1>PDF Most Frequent Words Finder</h1>
+    <p>Upload a text-based PDF file to find its most frequently used words (excluding common stop words).</p>
+
+    <input type="file" id="pdfFile" accept=".pdf">
+    <label for="numWords">Number of words:</label>
+    <input type="number" id="numWords" value="100" min="1" max="1000">
+    <button id="processBtn">Process PDF</button>
+
+    <div id="status">Select a PDF file and click "Process PDF".</div>
+    <div id="results" style="display: none;">
+        <h2>Results:</h2>
+        <ol id="wordList"></ol>
+    </div>
+
+    <script>
+        const fileInput = document.getElementById('pdfFile');
+        const numWordsInput = document.getElementById('numWords');
+        const processBtn = document.getElementById('processBtn');
+        const statusDiv = document.getElementById('status');
+        const resultsDiv = document.getElementById('results');
+        const wordListOl = document.getElementById('wordList');
+
+        let pyodide = null;
+        let textProcessorFunc = null;
+
+        // Initialize Pyodide and load the Python script
+        async function loadPyodideAndScript() {
+            statusDiv.textContent = 'Loading Python runtime (Pyodide)...';
+            try {
+                pyodide = await loadPyodide();
+                statusDiv.textContent = 'Python runtime loaded. Loading text processor...';
+
+                // Fetch the Python script content
+                const response = await fetch('text_processor.py'); // Assumes the script is in the same directory
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                const pythonScript = await response.text();
+
+                // Make Python modules available
+                await pyodide.loadPackage(['micropip']); // collections, string, re are built-in or included
+                const micropip = pyodide.pyimport("micropip");
+
+                // Run the Python script to define the function
+                pyodide.runPython(pythonScript);
+
+                // Get a reference to the Python function
+                textProcessorFunc = pyodide.globals.get('process_text');
+
+                statusDiv.textContent = 'Ready. Select a PDF file and click "Process PDF".';
+                processBtn.disabled = false; // Enable button after loading
+            } catch (error) {
+                console.error('Error loading Pyodide or Python script:', error);
+                statusDiv.textContent = `Error loading components: ${error}. Please refresh the page.`;
+                statusDiv.classList.add('error');
+                processBtn.disabled = true;
+            }
+        }
+
+        // Function to extract text from PDF using pdf.js
+        async function extractTextFromPdf(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = async (event) => {
+                    const typedArray = new Uint8Array(event.target.result);
+                    try {
+                        const pdf = await pdfjsLib.getDocument({ data: typedArray }).promise;
+                        let fullText = '';
+                        for (let i = 1; i <= pdf.numPages; i++) {
+                            const page = await pdf.getPage(i);
+                            const textContent = await page.getTextContent();
+                            // Join text items respecting spaces (simple approach)
+                            fullText += textContent.items.map(item => item.str).join(' ') + '\n';
+                        }
+                        resolve(fullText);
+                    } catch (error) {
+                        reject(`Error parsing PDF: ${error.message}`);
+                    }
+                };
+                reader.onerror = (event) => {
+                    reject('Error reading file.');
+                };
+                reader.readAsArrayBuffer(file);
+            });
+        }
+
+        // Event listener for the button
+        processBtn.addEventListener('click', async () => {
+            const file = fileInput.files[0];
+            const numWords = parseInt(numWordsInput.value, 10);
+
+            if (!file) {
+                statusDiv.textContent = 'Please select a PDF file first.';
+                return;
+            }
+            if (!pyodide || !textProcessorFunc) {
+                statusDiv.textContent = 'Pyodide or Python script not loaded correctly. Please refresh.';
+                return;
+            }
+            if (isNaN(numWords) || numWords < 1) {
+                 statusDiv.textContent = 'Please enter a valid number of words (>= 1).';
+                return;
+            }
+
+            statusDiv.textContent = 'Processing... Reading PDF file.';
+            resultsDiv.style.display = 'none'; // Hide previous results
+            wordListOl.innerHTML = ''; // Clear previous list
+            processBtn.disabled = true; // Disable button during processing
+
+            try {
+                // 1. Extract text using pdf.js
+                statusDiv.textContent = 'Processing... Extracting text from PDF.';
+                const extractedText = await extractTextFromPdf(file);
+
+                if (!extractedText) {
+                    statusDiv.textContent = 'Could not extract any text from the PDF. Is it image-based?';
+                    processBtn.disabled = false;
+                    return;
+                }
+
+                // 2. Process text using Python (via Pyodide)
+                statusDiv.textContent = 'Processing... Analyzing text with Python.';
+                // Use pyodide.runPythonAsync if process_text were async
+                // Since it's sync, direct call is fine but might block UI for large texts
+                // Wrap in Promise.resolve to handle potential sync/async discrepancies if needed
+                const results = await Promise.resolve(textProcessorFunc(extractedText, numWords));
+
+                // The Python function returns a list of tuples. We need to convert Pyodide proxy objects.
+                // .toJs() converts the Pyodide proxy to a JavaScript array/object.
+                const jsResults = results.toJs({ deep: true }); // deep: true converts nested objects too
+
+                // 3. Display results
+                statusDiv.textContent = `Processing complete. Found ${jsResults.length} frequent words.`;
+                if (jsResults.length > 0) {
+                     // Check if the first result indicates an error from Python
+                    if (jsResults[0][0] === "Error processing text") {
+                        wordListOl.innerHTML = `<li class="error">Python Error: ${jsResults[0][1]}</li>`;
+                    } else {
+                        jsResults.forEach(([word, count]) => {
+                            const li = document.createElement('li');
+                            li.textContent = `${word}: ${count}`;
+                            wordListOl.appendChild(li);
+                        });
+                    }
+                    resultsDiv.style.display = 'block'; // Show results area
+                } else {
+                    statusDiv.textContent = 'Processing complete. No significant words found after filtering.';
+                }
+
+            } catch (error) {
+                console.error('Processing error:', error);
+                statusDiv.textContent = `Error: ${error}`;
+                statusDiv.classList.add('error');
+            } finally {
+                processBtn.disabled = false; // Re-enable button
+            }
+        });
+
+        // Initialize Pyodide when the page loads
+        processBtn.disabled = true; // Disable button initially
+        loadPyodideAndScript();
+
+    </script>
+
+</body>
+</html>
