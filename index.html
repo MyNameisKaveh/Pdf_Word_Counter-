@@ -1,18 +1,103 @@
-    <!-- ... (head and body start remain the same) ... -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF Word Counter</title>
+    <style>
+        body { font-family: sans-serif; padding: 20px; line-height: 1.6; background-color: #f4f4f4; color: #333; }
+        #container { max-width: 800px; margin: 20px auto; background: #fff; padding: 30px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        h1 { color: #444; text-align: center; margin-bottom: 20px; }
+        p { color: #666; }
+        #controls { margin-bottom: 20px; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+        #status { margin-top: 15px; padding: 10px; background-color: #eee; border-radius: 4px; font-style: italic; color: #555; min-height: 20px; text-align: center;}
+        #results { margin-top: 20px; border: 1px solid #ccc; padding: 15px; border-radius: 4px; background-color: #f9f9f9; max-height: 450px; overflow-y: auto; display: none; /* Initially hidden */ }
+        h2 { color: #555; margin-top: 0; border-bottom: 1px solid #eee; padding-bottom: 5px; }
+        button { padding: 10px 15px; font-size: 1em; cursor: pointer; background-color: #007bff; color: white; border: none; border-radius: 4px; transition: background-color 0.2s; }
+        button:disabled { background-color: #ccc; cursor: not-allowed; }
+        button:hover:not(:disabled) { background-color: #0056b3; }
+        input[type="file"] { border: 1px solid #ccc; padding: 8px; border-radius: 4px; }
+        input[type="number"] { border: 1px solid #ccc; padding: 8px; border-radius: 4px; width: 80px; }
+        label { margin-left: 5px; }
+        ol { padding-left: 25px; }
+        li { margin-bottom: 8px; color: #333; }
+        .error { color: #dc3545; font-weight: bold; background-color: #f8d7da; border-color: #f5c6cb; }
+        .loader {
+             border: 4px solid #f3f3f3; /* Light grey */
+             border-top: 4px solid #3498db; /* Blue */
+             border-radius: 50%;
+             width: 20px;
+             height: 20px;
+             animation: spin 1s linear infinite;
+             display: inline-block; /* Or none */
+             vertical-align: middle;
+             margin-left: 10px;
+             display: none; /* Initially hidden */
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+    <!-- Load Pyodide -->
+    <script src="https://cdn.jsdelivr.net/pyodide/v0.25.1/full/pyodide.js"></script>
+    <!-- Load pdf.js (needed for PDF text extraction in the browser) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.11.338/pdf.min.js"></script>
+    <!-- Set workerSrc for pdf.js -->
+    <script>
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.11.338/pdf.worker.min.js';
+    </script>
+</head>
+<body>
+
+    <div id="container">
+        <h1>PDF Most Frequent Words Finder</h1>
+        <p>Upload a text-based PDF file to find its most frequently used words. Common English stop words and structural terms are excluded. Results are lemmatized (e.g., 'gene' and 'genes' count as 'gene').</p>
+
+        <div id="controls">
+            <input type="file" id="pdfFile" accept=".pdf">
+            <label for="numWords">Number of words:</label>
+            <input type="number" id="numWords" value="100" min="1" max="1000">
+            <button id="processBtn" disabled>Process PDF</button> <!-- Initially disabled -->
+             <div class="loader" id="loader"></div>
+        </div>
+
+
+        <div id="status">Loading Python runtime and packages... Please wait.</div>
+        <div id="results">
+            <h2>Top Words:</h2>
+            <ol id="wordList"></ol>
+        </div>
+    </div>
 
     <script>
-        // ... (variable declarations remain the same) ...
+        const fileInput = document.getElementById('pdfFile');
+        const numWordsInput = document.getElementById('numWords');
+        const processBtn = document.getElementById('processBtn');
+        const statusDiv = document.getElementById('status');
+        const resultsDiv = document.getElementById('results');
+        const wordListOl = document.getElementById('wordList');
+        const loader = document.getElementById('loader');
 
         let pyodide = null;
         let textProcessorFunc = null;
         let nltkSetupDone = false; // Flag to track NLTK setup
 
-        // Initialize Pyodide, load NLTK, and Python script
+        // Function to update status and show/hide loader
+        function updateStatus(message, showLoader = false) {
+            statusDiv.textContent = message;
+            statusDiv.classList.remove('error'); // Clear error state on new status
+            loader.style.display = showLoader ? 'inline-block' : 'none';
+            // Optional: Scroll status into view if page is long
+            // statusDiv.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+
+        // Initialize Pyodide, load NLTK, Python script, and NLTK data
         async function loadPyodideAndPackages() {
-            statusDiv.textContent = 'Loading Python runtime (Pyodide)...';
+            updateStatus('Loading Python runtime (Pyodide)...', true);
             try {
                 pyodide = await loadPyodide();
-                statusDiv.textContent = 'Python runtime loaded. Loading packages (nltk)...';
+                updateStatus('Python runtime loaded. Loading packages (NLTK)...', true);
 
                 // Load micropip to install packages
                 await pyodide.loadPackage(['micropip']);
@@ -20,98 +105,186 @@
 
                 // Install nltk
                 await micropip.install('nltk');
-                statusDiv.textContent = 'NLTK installed. Loading text processor script...';
+                updateStatus('NLTK installed. Loading text processor script...', true);
 
-                 // Fetch the Python script content
-                const response = await fetch('text_processor.py');
-                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                 // Fetch the Python script content (ensure correct path)
+                const response = await fetch('text_processor.py'); // Assumes script is in the same folder
+                if (!response.ok) throw new Error(`HTTP error fetching Python script: ${response.status}`);
                 const pythonScript = await response.text();
 
                 // Run the Python script to define functions
                 pyodide.runPython(pythonScript);
 
-                // Get a reference to the Python function AFTER script runs
+                // Get a reference to the Python functions AFTER script runs
                 textProcessorFunc = pyodide.globals.get('process_text');
+                const downloadNltkFunc = pyodide.globals.get('download_nltk_data');
+                const initializeLemmatizerFunc = pyodide.globals.get('initialize_lemmatizer');
+
+
+                if (!textProcessorFunc || !downloadNltkFunc || !initializeLemmatizerFunc) {
+                    throw new Error("Could not find necessary Python functions (process_text, download_nltk_data, initialize_lemmatizer) in the script.");
+                }
 
                 // --- Trigger NLTK data download ---
-                // Get the downloader function from Python script's global scope
-                const downloadNltkFunc = pyodide.globals.get('download_nltk_data');
-                statusDiv.textContent = 'Setting up NLTK data (WordNet, etc.)... Please wait.';
-                // Run the download function (this might take a moment)
-                await downloadNltkFunc(); // Use await if it were async, but nltk.download is sync
+                updateStatus('Setting up NLTK data (WordNet, etc.)... This might take a moment.', true);
+                await downloadNltkFunc(); // Run the download function
+                await initializeLemmatizerFunc(); // Initialize lemmatizer after downloads
                 nltkSetupDone = true; // Mark setup as complete
                 // -----------------------------------
 
-                statusDiv.textContent = 'Ready. Select a PDF file and click "Process PDF".';
+                updateStatus('Ready. Select a PDF file and click "Process PDF".', false);
                 processBtn.disabled = false; // Enable button
 
             } catch (error) {
                 console.error('Error loading Pyodide or Python script/packages:', error);
-                statusDiv.textContent = `Error loading components: ${error}. Please refresh the page.`;
+                updateStatus(`Initialization Error: ${error}. Please refresh the page.`, false);
                 statusDiv.classList.add('error');
                 processBtn.disabled = true;
             }
         }
 
-        // ... (extractTextFromPdf function remains the same) ...
+        // Function to extract text from PDF using pdf.js
+        async function extractTextFromPdf(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = async (event) => {
+                    if (!event.target.result) {
+                        return reject("File could not be read.");
+                    }
+                    const typedArray = new Uint8Array(event.target.result);
+                    try {
+                        // Using pdf.js to load the document
+                        const pdf = await pdfjsLib.getDocument({ data: typedArray }).promise;
+                        let fullText = '';
+                        // Iterate through each page
+                        for (let i = 1; i <= pdf.numPages; i++) {
+                            const page = await pdf.getPage(i);
+                            const textContent = await page.getTextContent();
+                            // Extract text items and join them with spaces
+                            // This is a simple approach; more complex layouts might need better joining logic
+                             const pageText = textContent.items.map(item => item.str).join(' ');
+                             fullText += pageText + '\n'; // Add newline between pages
+                             // Clean up potential extra spaces from joining
+                             fullText = fullText.replace(/\s+/g, ' ').trim();
+                             // Release page resources
+                             page.cleanup();
+                        }
+                        resolve(fullText);
+                    } catch (error) {
+                         console.error("pdf.js parsing error:", error);
+                         let errorMsg = `Error parsing PDF: ${error.message}.`;
+                         if (error.name === 'PasswordException') {
+                            errorMsg = 'Error: PDF is password protected.';
+                         } else if (error.message.includes('Invalid PDF structure')) {
+                             errorMsg = 'Error: Invalid or corrupted PDF file structure.';
+                         }
+                         reject(errorMsg);
+                    }
+                };
+                reader.onerror = (event) => {
+                    reject('Error reading the file.');
+                };
+                // Read the file as ArrayBuffer
+                reader.readAsArrayBuffer(file);
+            });
+        }
 
         // Event listener for the button
         processBtn.addEventListener('click', async () => {
             const file = fileInput.files[0];
             const numWords = parseInt(numWordsInput.value, 10);
 
-            if (!file) { /* ... */ return; }
-            if (!pyodide || !textProcessorFunc) { /* ... */ return; }
-            // Check if NLTK setup is complete
-            if (!nltkSetupDone) {
-                 statusDiv.textContent = 'NLTK setup not complete. Please wait or refresh.';
-                 return;
+            // Basic validations
+            if (!file) {
+                updateStatus('Please select a PDF file first.', false);
+                return;
             }
-            if (isNaN(numWords) || numWords < 1) { /* ... */ return; }
+            if (!pyodide || !textProcessorFunc || !nltkSetupDone) {
+                updateStatus('Components not ready. Please wait or refresh.', false);
+                statusDiv.classList.add('error');
+                return;
+            }
+             if (isNaN(numWords) || numWords < 1) {
+                 updateStatus('Please enter a valid number of words (>= 1).', false);
+                 statusDiv.classList.add('error');
+                return;
+            }
 
-            statusDiv.textContent = 'Processing... Reading PDF file.';
-            // ... (rest of the button click logic remains largely the same) ...
+            updateStatus('Processing... Reading PDF file.', true);
+            resultsDiv.style.display = 'none'; // Hide previous results
+            wordListOl.innerHTML = ''; // Clear previous list
+            processBtn.disabled = true; // Disable button during processing
 
             try {
-                // 1. Extract text
-                statusDiv.textContent = 'Processing... Extracting text from PDF.';
+                // 1. Extract text using pdf.js
+                updateStatus('Processing... Extracting text from PDF.', true);
                 const extractedText = await extractTextFromPdf(file);
-                if (!extractedText) { /* ... */ return; }
 
-                // 2. Process text using Python
-                statusDiv.textContent = 'Processing... Analyzing text (Tokenizing, Lemmatizing...).';
-                const results = await Promise.resolve(textProcessorFunc(extractedText, numWords));
+                if (!extractedText) {
+                    updateStatus('Could not extract text. PDF might be empty or image-based.', false);
+                    processBtn.disabled = false;
+                    return;
+                }
+                 updateStatus(`Processing... Text extracted (${Math.round(extractedText.length / 1024)} KB). Analyzing with Python...`, true);
+
+                // 2. Process text using Python (via Pyodide)
+                // Wrap the Python call in a Promise to ensure it's treated asynchronously
+                // even if the Python function itself is synchronous. Helps keep UI responsive.
+                const results = await new Promise((resolve) => {
+                    // Schedule the potentially long-running Python code outside the main event loop
+                    setTimeout(() => {
+                        try {
+                            const pyResult = textProcessorFunc(extractedText, numWords);
+                            resolve(pyResult);
+                        } catch (pyError) {
+                            console.error("Error during Python execution:", pyError);
+                            // Resolve with an error indicator that JS can check
+                            resolve([["Python Execution Error", String(pyError)]]);
+                        }
+                    }, 0); // setTimeout 0 pushes execution to after current event loop tasks
+                });
+
+
+                // Convert Pyodide proxy objects to standard JavaScript arrays/objects
+                // Use deep: true to convert nested structures (like tuples in the list)
                 const jsResults = results.toJs({ deep: true });
 
-                // 3. Display results
-                statusDiv.textContent = `Processing complete. Found ${jsResults.length} frequent words.`;
-                 if (jsResults.length > 0) {
-                    if (jsResults[0][0] === "Error" || jsResults[0][0] === "Error processing text") {
-                        wordListOl.innerHTML = `<li class="error">Python Error: ${jsResults[0][1]}</li>`;
-                    } else {
-                        wordListOl.innerHTML = ''; // Clear previous results before adding new ones
-                        jsResults.forEach(([word, count]) => {
-                            const li = document.createElement('li');
-                            li.textContent = `${word}: ${count}`;
-                            wordListOl.appendChild(li);
-                        });
-                    }
-                    resultsDiv.style.display = 'block';
+                // 3. Display results or errors
+                 if (jsResults && jsResults.length > 0 && (jsResults[0][0] === "Error" || jsResults[0][0] === "Error processing text" || jsResults[0][0] === "Python Execution Error")) {
+                     // Check if the result indicates an error from Python code
+                    updateStatus(`Processing Error: ${jsResults[0][1]}`, false);
+                    wordListOl.innerHTML = `<li class="error">Error: ${jsResults[0][1]}</li>`;
+                    resultsDiv.style.display = 'block'; // Show error in results area
+                    statusDiv.classList.add('error');
+                 } else if (jsResults && jsResults.length > 0) {
+                    // Success path
+                    updateStatus(`Processing complete. Found ${jsResults.length} frequent words.`, false);
+                    wordListOl.innerHTML = ''; // Clear just in case
+                    jsResults.forEach(([word, count]) => {
+                        const li = document.createElement('li');
+                        li.textContent = `${word}: ${count}`;
+                        wordListOl.appendChild(li);
+                    });
+                    resultsDiv.style.display = 'block'; // Show results area
                 } else {
-                    statusDiv.textContent = 'Processing complete. No significant words found after filtering.';
-                    resultsDiv.style.display = 'none'; // Hide results area if empty
+                    // No significant words found after filtering
+                    updateStatus('Processing complete. No significant words found after filtering.', false);
+                    resultsDiv.style.display = 'none'; // Keep results hidden
                 }
 
             } catch (error) {
-                 // ... (error handling remains the same) ...
+                // Catch errors from file reading, PDF parsing, or JS logic
+                console.error('Processing error:', error);
+                updateStatus(`Error: ${error}`, false);
+                statusDiv.classList.add('error');
             } finally {
-                processBtn.disabled = false; // Re-enable button
+                processBtn.disabled = false; // Re-enable button regardless of outcome
+                updateStatus(statusDiv.textContent, false); // Ensure loader is hidden if status wasn't updated at the end
             }
         });
 
-        // Initialize when the page loads
-        processBtn.disabled = true; // Disable button initially
-        loadPyodideAndPackages(); // Call the updated loading function
+        // Initialize Pyodide and other components when the page loads
+        window.onload = loadPyodideAndPackages;
 
     </script>
 
