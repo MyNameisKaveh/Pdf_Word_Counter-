@@ -40,7 +40,7 @@ The application is built with Python using the Flask framework for the backend a
 ## Project Structure
 
 The project follows a standard Flask application structure:
-
+```bash
 /Pdf_Word_Counter-/
 ├── app.py             # Main Flask application logic and routes
 ├── text_processor.py  # Module for PDF text extraction and NLTK processing
@@ -50,6 +50,7 @@ The project follows a standard Flask application structure:
 │   └── results.html   # Page to display the word frequency results
 ├── uploads/           # Directory for temporary storage of uploaded PDF files
 └── venv/              # Python virtual environment (typically not included in the Git repository)
+```
 
 ## Setup and Installation (For Local Development or Alternative Deployment)
 
