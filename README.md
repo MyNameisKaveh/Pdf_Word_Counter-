@@ -1,8 +1,3 @@
-حتماً! این یک پیش‌نویس برای فایل `README.md` پروژه شماست. می‌تونید اون رو کپی کنید و توی ریشه (root) ریپازیتوری گیت‌هابتون به عنوان فایل `README.md` قرار بدید.
-
-**یادتون نره که `<your-username>` رو با نام کاربری واقعی خودتون در PythonAnywhere جایگزین کنید.**
-
-```markdown
 # PDF Most Frequent Words Analyzer
 
 ## Overview
@@ -44,17 +39,18 @@ The application is built with Python using the Flask framework for the backend a
 
 ## Project Structure
 
-```
-/Pdf_Word_Counter-/  (Your project root directory on PythonAnywhere)
-├── app.py             # Main Flask application file
+The project follows a standard Flask application structure:
+
+/Pdf_Word_Counter-/
+├── app.py             # Main Flask application logic and routes
 ├── text_processor.py  # Module for PDF text extraction and NLTK processing
-├── requirements.txt   # Python package dependencies
-├── templates/
-│   ├── index.html     # Upload form page
-│   └── results.html   # Page to display results
-├── uploads/           # Temporary storage for uploaded PDF files (server-side)
-└── venv/              # Python virtual environment (not in Git repo)
-```
+├── requirements.txt   # Python package dependencies for pip
+├── templates/           # HTML templates for rendering web pages
+│   ├── index.html     # Main page with the PDF upload form
+│   └── results.html   # Page to display the word frequency results
+├── uploads/           # Directory for temporary storage of uploaded PDF files (created by app.py if not present)
+└── venv/              # Python virtual environment (typically not included in the Git repository)
+
 
 ## Setup and Installation (For Local Development or Alternative Deployment)
 
@@ -116,17 +112,3 @@ If you wish to run this project locally or deploy it to a different environment:
 ## Contributing
 
 Contributions are welcome! If you have suggestions for improvements or find any issues, please feel free to open an issue or submit a pull request.
-
-## License
-
-This project is open-source. (You can add a specific license like MIT if you wish).
-```
-
-**چند نکته:**
-
-*   مطمئن شو که `<YourGitHubUsername>` و `<YourRepositoryName>` رو با اطلاعات واقعی ریپازیتوریت جایگزین کنی.
-*   اگه از لایسنس خاصی استفاده می‌کنی (مثلا MIT License)، می‌تونی آخرش ذکر کنی.
-*   می‌تونی بخش "Future Enhancements" رو بر اساس ایده‌های خودت کم و زیاد کنی.
-*   این README برای پروژه‌ای که روی PythonAnywhere هست و کدش روی گیت‌هاب، مناسبه.
-
-امیدوارم این README به دردت بخوره!
