@@ -45,12 +45,11 @@ The project follows a standard Flask application structure:
 ├── app.py             # Main Flask application logic and routes
 ├── text_processor.py  # Module for PDF text extraction and NLTK processing
 ├── requirements.txt   # Python package dependencies for pip
-├── templates/           # HTML templates for rendering web pages
+├── templates/         # HTML templates for rendering web pages
 │   ├── index.html     # Main page with the PDF upload form
 │   └── results.html   # Page to display the word frequency results
-├── uploads/           # Directory for temporary storage of uploaded PDF files (created by app.py if not present)
+├── uploads/           # Directory for temporary storage of uploaded PDF files
 └── venv/              # Python virtual environment (typically not included in the Git repository)
-
 
 ## Setup and Installation (For Local Development or Alternative Deployment)
 
@@ -58,8 +57,8 @@ If you wish to run this project locally or deploy it to a different environment:
 
 1.  **Clone the repository:**
     ```bash
-    git clone https://github.com/<YourGitHubUsername>/<YourRepositoryName>.git
-    cd <YourRepositoryName>
+    git clone https://github.com/<MyNameisKaveh>/<Pdf_Word_Counter>.git
+    cd <Pdf_Word_Counter>
     ```
 
 2.  **Create and activate a virtual environment:**
