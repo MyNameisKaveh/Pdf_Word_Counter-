@@ -3,6 +3,7 @@ import uuid # To generate unique filenames
 from flask import Flask, request, render_template, redirect, url_for, flash
 from werkzeug.utils import secure_filename
 from text_processor import process_text_file, initialize_nltk_on_server
+import traceback
 
 # --- Configuration ---
 UPLOAD_FOLDER = 'uploads' # Create this folder in your project directory
